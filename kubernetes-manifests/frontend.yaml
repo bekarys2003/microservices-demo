@@ -44,7 +44,7 @@ spec:
                 - ALL
             privileged: false
             readOnlyRootFilesystem: true
-          image: ghcr.io/googlecloudplatform/microservices-demo/frontend:latest
+          image: frontend
           ports:
           - containerPort: 8080
           readinessProbe:

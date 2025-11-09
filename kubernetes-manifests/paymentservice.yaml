@@ -43,7 +43,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: ghcr.io/googlecloudplatform/microservices-demo/paymentservice:latest
+        image: paymentservice
         ports:
         - containerPort: 50051
         env:

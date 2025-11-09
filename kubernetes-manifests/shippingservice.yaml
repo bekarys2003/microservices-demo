@@ -42,7 +42,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: ghcr.io/googlecloudplatform/microservices-demo/shippingservice:latest
+        image: shippingservice
         ports:
         - containerPort: 50051
         env:
