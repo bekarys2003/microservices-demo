@@ -68,26 +68,27 @@ jobs:
           set -euo pipefail
           SVC="${{ matrix.service }}"
 
-          # default paths
+          # Default guess
           DOCKERFILE="src/${SVC}/Dockerfile"
-          CONTEXT="src/${SVC}"
 
-          # handle services that keep Dockerfile under src/<svc>/src/Dockerfile (e.g., cartservice)
+          # If not found, try nested src/ (e.g., cartservice/src/Dockerfile)
           if [ ! -f "$DOCKERFILE" ] && [ -f "src/${SVC}/src/Dockerfile" ]; then
             DOCKERFILE="src/${SVC}/src/Dockerfile"
-            # use the service root as context so multi-stage builds can COPY from subdirs
-            CONTEXT="src/${SVC}"
           fi
 
           if [ ! -f "$DOCKERFILE" ]; then
-            echo "Dockerfile not found for $SVC at $DOCKERFILE"; exit 1
+            echo "Dockerfile not found for $SVC"; ls -R "src/${SVC}" || true; exit 1
           fi
+
+          # Build context must be the directory containing the Dockerfile
+          CONTEXT="$(dirname "$DOCKERFILE")"
 
           echo "Building $SVC with Dockerfile=$DOCKERFILE context=$CONTEXT"
           docker build -f "$DOCKERFILE" -t "$IMAGE:$TAG" "$CONTEXT"
           docker tag "$IMAGE:$TAG" "$IMAGE:latest"
           docker push "$IMAGE:$TAG"
           docker push "$IMAGE:latest"
+
 
 
       - name: Show pushed tags (debug)
