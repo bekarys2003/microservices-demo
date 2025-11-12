@@ -1,4 +1,5 @@
 name: build-and-push
+
 on:
   workflow_dispatch:
     inputs:
@@ -6,8 +7,14 @@ on:
         description: "Immutable tag to use for all images (e.g., short SHA)"
         required: true
         type: string
+      push_latest:
+        description: "Also push :latest? (true/false)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false","true"]
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
       - "src/**"
       - ".github/workflows/build-and-push.yaml"
@@ -29,6 +36,7 @@ jobs:
           "frontend","paymentservice","productcatalogservice","recommendationservice",
           "shippingservice"
         ]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -39,34 +47,51 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Export AWS_ACCOUNT_ID
-        run: echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+        run: echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Fallback to short SHA only if this was a push and image_tag wasn’t provided
+      # short SHA for push events only (workflow_dispatch uses input)
       - name: Compute fallback TAG (short SHA)
         id: vars
-        run: echo "TAG=$(echo ${GITHUB_SHA} | cut -c1-8)" >> $GITHUB_OUTPUT
+        run: echo "TAG=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve TAG
         id: tag
         run: |
           if [ -n "${{ github.event.inputs.image_tag }}" ]; then
-            echo "TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+            echo "TAG=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
           else
-            echo "TAG=${{ steps.vars.outputs.TAG }}" >> $GITHUB_OUTPUT
+            echo "TAG=${{ steps.vars.outputs.TAG }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure ECR repository exists
+        env:
+          REPO_NAME: online-boutique/${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          if ! aws ecr describe-repositories --repository-names "$REPO_NAME" >/dev/null 2>&1; then
+            echo "Creating ECR repo: $REPO_NAME"
+            aws ecr create-repository --repository-name "$REPO_NAME" >/dev/null
+            # (Optional) make tags immutable:
+            # aws ecr put-image-tag-mutability --repository-name "$REPO_NAME" --image-tag-mutability IMMUTABLE
+            # (Optional) add lifecycle policy to expire untagged images:
+            # aws ecr put-lifecycle-policy --repository-name "$REPO_NAME" --lifecycle-policy-text '{"rules":[{"rulePriority":1,"description":"Expire untagged images after 7 days","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":7},"action":{"type":"expire"}}]}'
+          else
+            echo "Repo exists: $REPO_NAME"
           fi
 
       - name: Build & Push ${{ matrix.service }}
         env:
           IMAGE: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/online-boutique/${{ matrix.service }}
           TAG: ${{ steps.tag.outputs.TAG }}
+          PUSH_LATEST: ${{ github.event.inputs.push_latest }}
           SVC: ${{ matrix.service }}
         run: |
           set -euo pipefail
 
-          # Figure out Dockerfile & context (cartservice has nested Dockerfile)
+          # Detect Dockerfile + context (cartservice sometimes nests Dockerfile)
           if [ -f "src/${SVC}/Dockerfile" ]; then
             DOCKERFILE="src/${SVC}/Dockerfile"
             CONTEXT="src/${SVC}"
@@ -78,7 +103,13 @@ jobs:
           fi
 
           echo "Building ${SVC} with ${DOCKERFILE} (context=${CONTEXT}) -> ${IMAGE}:${TAG}"
-          docker build -f "$DOCKERFILE" -t "$IMAGE:$TAG" "$CONTEXT"
-          docker tag "$IMAGE:$TAG" "$IMAGE:latest"
-          docker push "$IMAGE:$TAG"
-          docker push "$IMAGE:latest"
+          docker build -f "$DOCKERFILE" -t "${IMAGE}:${TAG}" "$CONTEXT"
+
+          if [ "${PUSH_LATEST:-false}" = "true" ]; then
+            docker tag "${IMAGE}:${TAG}" "${IMAGE}:latest"
+          fi
+
+          docker push "${IMAGE}:${TAG}"
+          if [ "${PUSH_LATEST:-false}" = "true" ]; then
+            docker push "${IMAGE}:latest"
+          fi
