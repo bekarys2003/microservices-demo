@@ -91,13 +91,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Detect Dockerfile + context (cartservice sometimes nests Dockerfile)
+          # Detect Dockerfile + context (make CONTEXT the dir that holds the Dockerfile)
           if [ -f "src/${SVC}/Dockerfile" ]; then
             DOCKERFILE="src/${SVC}/Dockerfile"
             CONTEXT="src/${SVC}"
           elif [ -f "src/${SVC}/src/Dockerfile" ]; then
             DOCKERFILE="src/${SVC}/src/Dockerfile"
-            CONTEXT="src/${SVC}"
+            CONTEXT="src/${SVC}/src"
           else
             echo "Dockerfile not found for ${SVC}"; exit 1
           fi
